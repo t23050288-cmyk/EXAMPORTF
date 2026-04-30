@@ -17,8 +17,12 @@ export async function GET(req: NextRequest) {
   results?.forEach(r => { resultsMap[r.student_id] = r; });
   const merged = (students || []).map(s => ({
     ...s,
+    student_id: s.id,
     status: statusMap[s.id]?.status || "not_started",
     warnings: statusMap[s.id]?.warnings || 0,
+    started_at: statusMap[s.id]?.started_at || null,
+    submitted_at: statusMap[s.id]?.submitted_at || null,
+    last_active: statusMap[s.id]?.last_active || null,
     score: resultsMap[s.id]?.score || 0,
     total_marks: resultsMap[s.id]?.total_marks || 0,
   }));

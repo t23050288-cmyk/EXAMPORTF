@@ -434,7 +434,7 @@
 }
 
 /* ── No-select ── */
-:global(.no-select) {
+.noSelect {
   user-select: none;
   -webkit-user-select: none;
 }

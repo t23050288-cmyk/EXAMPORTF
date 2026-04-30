@@ -42,7 +42,7 @@ export async function POST(req: NextRequest) {
     await supabase.from("exam_status").update({ status: "submitted", submitted_at: now }).eq("student_id", studentId);
     await supabase.from("students").update({ is_active_session: false, current_token: null }).eq("id", studentId);
 
-    return NextResponse.json({ score, total_marks: totalMarks, correct, wrong, skipped, total: questions?.length || 0 });
+    return NextResponse.json({ score, total_marks: totalMarks, correct, wrong, skipped, total: questions?.length || 0, correct_count: correct, wrong_count: wrong, skipped_count: skipped });
   } catch (err: any) {
     return NextResponse.json({ detail: err.message }, { status: 500 });
   }

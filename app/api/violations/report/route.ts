@@ -18,7 +18,11 @@ export async function POST(req: NextRequest) {
     const { count } = await supabase.from("violations").select("id", { count: "exact", head: true }).eq("student_id", studentId);
     await supabase.from("exam_status").update({ warnings: count || 0, last_active: new Date().toISOString() }).eq("student_id", studentId);
 
-    return NextResponse.json({ total_violations: count || 0 });
+    const warningCount = count || 0;
+    const messages = ["Warning! Keep focus on exam.", "Second warning! Exam may be auto-submitted.", "Final warning! Next violation will auto-submit.", "Auto-submitting due to violations."];
+    const msg = messages[Math.min(warningCount - 1, messages.length - 1)] || "Violation recorded.";
+    const autoSubmit = warningCount >= 4;
+    return NextResponse.json({ total_violations: warningCount, warning_count: warningCount, message: msg, auto_submitted: autoSubmit });
   } catch (err: any) {
     return NextResponse.json({ detail: err.message }, { status: 500 });
   }

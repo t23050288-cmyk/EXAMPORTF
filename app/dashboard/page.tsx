@@ -137,7 +137,7 @@ export default function DashboardPage() {
                 branch,
                 is_active: config.is_active,
                 duration_minutes: config.duration_minutes,
-                scheduled_start: config.scheduled_start,
+                scheduled_start: config.scheduled_start ?? null,
                 question_count: count,
               });
               seen.add(nodeId);

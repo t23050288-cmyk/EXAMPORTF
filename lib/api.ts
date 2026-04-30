@@ -85,7 +85,7 @@ export async function startExam(title: string): Promise<{ started_at: string }> 
   return apiFetch("/exam/start", { method: "POST", body: JSON.stringify({ title }) });
 }
 
-export async function saveAnswer(questionId: string, answer: string, examTitle: string): Promise<void> {
+export async function saveAnswer(questionId: string, answer: string, examTitle?: string): Promise<void> {
   await apiFetch("/exam/save-answer", {
     method: "POST",
     body: JSON.stringify({ question_id: questionId, answer, exam_title: examTitle }),
@@ -99,6 +99,9 @@ export interface SubmitResponse {
   wrong: number;
   skipped: number;
   total: number;
+  correct_count: number;
+  wrong_count: number;
+  skipped_count: number;
 }
 
 export async function submitExam(answers: Record<string, string>, examTitle: string): Promise<SubmitResponse> {
@@ -109,7 +112,12 @@ export async function submitExam(answers: Record<string, string>, examTitle: str
 }
 
 // ── Violations ────────────────────────────────────────────────
-export interface ViolationResponse { total_violations: number; }
+export interface ViolationResponse {
+  total_violations: number;
+  warning_count: number;
+  message: string;
+  auto_submitted?: boolean;
+}
 
 export async function reportViolation(type: string, metadata?: Record<string, any>): Promise<ViolationResponse> {
   return apiFetch<ViolationResponse>("/violations/report", {
@@ -128,7 +136,17 @@ export interface AdminQuestion {
   marks: number; order_index: number; branch: string; exam_name: string; image_url?: string;
 }
 
-export async function fetchAdminQuestions(): Promise<{ folders: any[]; total: number }> {
+export async function fetchAdminQuestions(): Promise<AdminQuestion[]> {
+  const data = await apiFetch<{ folders: any[]; total: number }>("/admin/questions", { headers: adminHeaders() });
+  // Flatten folders into a single questions array
+  const all: AdminQuestion[] = [];
+  data.folders?.forEach((f: any) => {
+    f.questions?.forEach((q: any) => all.push(q));
+  });
+  return all;
+}
+
+export async function fetchAdminQuestionFolders(): Promise<{ folders: any[]; total: number }> {
   return apiFetch("/admin/questions", { headers: adminHeaders() });
 }
 
@@ -145,8 +163,20 @@ export async function deleteAdminQuestion(id: string): Promise<void> {
 }
 
 export interface AdminStudent {
-  id: string; usn: string; name: string; email: string; branch: string;
-  status: string; score: number; total_marks: number; warnings: number;
+  id: string;
+  student_id: string;
+  usn: string;
+  name: string;
+  email: string;
+  branch: string;
+  status: string;
+  score: number;
+  total_marks: number;
+  warnings: number;
+  started_at?: string | null;
+  submitted_at?: string | null;
+  last_active: string | null;
+  current_question?: number | null;
 }
 
 export async function fetchAdminStudents(): Promise<AdminStudent[]> {
@@ -220,4 +250,28 @@ export async function uploadQuestionImage(file: File): Promise<string> {
   });
   const data = await res.json();
   return data.url;
+}
+
+export async function exportResults(branch?: string): Promise<Blob> {
+  const url = branch ? `${API_BASE}/admin/export?branch=${encodeURIComponent(branch)}` : `${API_BASE}/admin/export`;
+  const res = await fetch(url, {
+    headers: { "X-Admin-Secret": ADMIN_SECRET },
+  });
+  return res.blob();
+}
+
+export interface BranchExamSummary {
+  branch: string;
+  exam_name: string;
+  count?: number;
+  question_count?: number;
+}
+
+export async function fetchBranchExamSummary(): Promise<BranchExamSummary[]> {
+  const data = await apiFetch<{ folders: any[]; total: number }>("/admin/questions", { headers: adminHeaders() });
+  return (data.folders || []).map((f: any) => ({
+    branch: f.branch || "CS",
+    exam_name: f.name || "Unknown",
+    count: f.questions?.length || 0,
+  }));
 }
