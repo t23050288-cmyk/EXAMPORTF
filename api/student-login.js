@@ -8,41 +8,48 @@ export default async function handler(req, res) {
   const { usn, password } = req.body
   if (!usn || !password) return res.status(400).json({ error: 'USN and password required' })
 
-  const { data: students, error } = await supabase
+  const { data: student, error } = await supabase
     .from('students')
     .select('*')
-    .eq('usn', usn.toUpperCase())
+    .eq('usn', usn.toUpperCase().trim())
     .single()
 
-  if (error || !students) return res.status(401).json({ error: 'Invalid USN or password' })
+  if (error || !student) return res.status(401).json({ error: 'Invalid USN or password' })
+  if (student.password !== password) return res.status(401).json({ error: 'Invalid USN or password' })
 
-  // Simple password check (in production use bcrypt)
-  if (students.password !== password) return res.status(401).json({ error: 'Invalid USN or password' })
-
-  // Check for existing active session
+  // Upsert exam_status (don't overwrite in_progress)
   const { data: existing } = await supabase
     .from('exam_status')
-    .select('*')
-    .eq('usn', usn.toUpperCase())
-    .eq('status', 'in_progress')
+    .select('status')
+    .eq('usn', student.usn)
     .single()
 
-  // Update or create exam_status
   if (!existing) {
-    await supabase.from('exam_status').upsert({
-      usn: students.usn,
-      student_name: students.name,
-      branch: students.branch,
+    await supabase.from('exam_status').insert({
+      usn: student.usn,
+      student_name: student.name,
+      branch: student.branch,
+      section: student.section || '',
       status: 'not_started',
       warnings: 0,
       score: 0
     })
   }
 
-  const token = jwt.sign({ usn: students.usn, name: students.name }, process.env.JWT_SECRET, { expiresIn: '4h' })
+  const token = jwt.sign(
+    { usn: student.usn, name: student.name },
+    process.env.JWT_SECRET,
+    { expiresIn: '4h' }
+  )
 
   res.json({
-    student: { usn: students.usn, name: students.name, email: students.email, branch: students.branch },
+    student: {
+      usn: student.usn,
+      name: student.name,
+      email: student.email,
+      branch: student.branch,
+      section: student.section || ''
+    },
     token
   })
 }
