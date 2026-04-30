@@ -1,0 +1,237 @@
+/* ══════════════════════════════════════════════════════════════
+   QuestionCard – Light Frosted Glass (matching mockup)
+   ══════════════════════════════════════════════════════════════ */
+
+.card {
+  background: rgba(255, 255, 255, 0.80);
+  backdrop-filter: blur(40px) saturate(1.4);
+  -webkit-backdrop-filter: blur(40px) saturate(1.4);
+  border: 1px solid rgba(255, 255, 255, 0.9);
+  border-radius: 24px;
+  padding: 32px;
+  transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.05);
+  animation: fadeUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.card:hover {
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.08);
+}
+
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.questionNumber {
+  font-size: 14px;
+  font-weight: 600;
+  color: #475569;
+}
+
+.marks {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 12px;
+  border-radius: 20px;
+  background: rgba(13, 148, 136, 0.08);
+  color: #0d9488;
+  border: 1px solid rgba(13, 148, 136, 0.15);
+}
+
+.questionText {
+  font-size: 17px;
+  font-weight: 600;
+  color: #1e293b;
+  line-height: 1.5;
+  margin-bottom: 20px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.optionsList {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.option {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 18px;
+  border-radius: 14px;
+  cursor: pointer;
+  transition: all 0.25s ease;
+  background: rgba(255, 255, 255, 0.5);
+  border: 1.5px solid rgba(0, 0, 0, 0.06);
+}
+
+.option:hover {
+  background: rgba(13, 148, 136, 0.04);
+  border-color: rgba(13, 148, 136, 0.2);
+}
+
+.optionSelected {
+  background: rgba(13, 148, 136, 0.06) !important;
+  border-color: #0d9488 !important;
+}
+
+/* Custom Radio Circle */
+.radio {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid #cbd5e1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: all 0.2s ease;
+}
+
+.optionSelected .radio {
+  border-color: #0d9488;
+  background: #0d9488;
+}
+
+.radioInner {
+  width: 0;
+  height: 0;
+  border-radius: 50%;
+  background: #fff;
+  transition: all 0.2s ease;
+}
+
+.optionSelected .radioInner {
+  width: 8px;
+  height: 8px;
+}
+
+.optionLabel {
+  font-size: 15px;
+  font-weight: 500;
+  color: #334155;
+  line-height: 1.4;
+}
+
+.optionSelected .optionLabel {
+  color: #0f172a;
+  font-weight: 600;
+}
+
+/* Buttons row */
+.actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 8px;
+}
+
+.btnPrevious {
+  padding: 12px 24px;
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  background: rgba(13, 148, 136, 0.08);
+  border: 1.5px solid rgba(13, 148, 136, 0.3);
+  color: #0d9488;
+}
+
+.btnPrevious:hover {
+  background: rgba(13, 148, 136, 0.15);
+}
+
+.btnReview {
+  padding: 12px 24px;
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  background: transparent;
+  border: 1.5px solid rgba(0, 0, 0, 0.1);
+  color: #475569;
+}
+
+.btnReview:hover {
+  border-color: #eab308;
+  color: #ca8a04;
+}
+
+.btnReviewActive {
+  border-color: #eab308 !important;
+  color: #ca8a04 !important;
+  background: rgba(234, 179, 8, 0.08) !important;
+}
+
+.btnNext {
+  padding: 12px 28px;
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  background: #0d9488;
+  border: none;
+  color: #fff;
+  box-shadow: 0 4px 14px rgba(13, 148, 136, 0.3);
+}
+
+.btnNext:hover {
+  background: #0f766e;
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px rgba(13, 148, 136, 0.4);
+}
+
+.btnSubmit {
+  padding: 12px 28px;
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  background: #ef4444;
+  border: none;
+  color: #fff;
+  box-shadow: 0 4px 14px rgba(239, 68, 68, 0.3);
+}
+
+.btnSubmit:hover {
+  background: #dc2626;
+  transform: translateY(-1px);
+}
+
+.imageContainer {
+  width: 100%;
+  max-height: 400px;
+  overflow: hidden;
+  border-radius: var(--radius-lg);
+  margin: 16px 0 24px 0;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+}
+
+.image {
+  max-width: 100%;
+  max-height: 400px;
+  object-fit: contain;
+  display: block;
+}
