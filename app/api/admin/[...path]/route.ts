@@ -229,8 +229,22 @@ async function handleIngest(req: NextRequest) {
 }
 
 // ── ROUTER ────────────────────────────────────────────────────────────────
+async function debugSecret(req: NextRequest) {
+  const s = ADMIN_SECRET;
+  const provided = req.headers.get("x-admin-secret") || req.headers.get("x-admin-key") || "";
+  return NextResponse.json({ 
+    secret_preview: s.slice(0,3) + "***" + s.slice(-3),
+    secret_length: s.length,
+    env_admin_secret: process.env.ADMIN_SECRET ? "SET" : "NOT_SET",
+    env_next_admin_secret: process.env.NEXT_PUBLIC_ADMIN_SECRET ? "SET" : "NOT_SET",
+    provided_preview: provided ? provided.slice(0,3) + "***" + provided.slice(-3) : "NONE",
+    match: provided.trim() === ADMIN_SECRET || provided.trim() === FALLBACK_SECRET,
+  });
+}
+
 export async function GET(req: NextRequest, { params }: { params: { path: string[] } }) {
   const path = params.path?.join("/") || "";
+  if (path === "_debug_secret") return debugSecret(req);
   if (path === "questions") return getQuestions(req);
   if (path === "students") return getStudents(req);
   if (path === "config") return getConfig();
