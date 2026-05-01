@@ -196,36 +196,138 @@ function parseCSV(content: string) {
   });
 }
 
-async function handleIngest(req: NextRequest) {
+function extractQuestionsFromText(rawText: string): any[] {
+  const questions: any[] = [];
+  // Strategy: look for numbered question patterns like "1.", "Q1.", "Q1:" etc.
+  const blocks = rawText.split(/\n(?=\s*(?:Q\s*\d+|\d+[\.\)]|Question\s+\d+))/i);
+  for (const block of blocks) {
+    const lines = block.split("\n").map(l => l.trim()).filter(Boolean);
+    if (lines.length < 3) continue;
+    // First line = question text (strip leading number/Q prefix)
+    const qText = lines[0].replace(/^(?:Q\s*\d+[.:\-]?|\d+[.:\-])\s*/i, "").trim();
+    if (!qText || qText.length < 5) continue;
+    const opts: string[] = [];
+    let correct = "A";
+    let correctFound = false;
+    for (let i = 1; i < lines.length; i++) {
+      const l = lines[i];
+      // Match option lines: A) B) C) D) or A. B. C. D.
+      const optMatch = l.match(/^([A-Da-d])[.):]\s*(.+)/);
+      if (optMatch) {
+        opts.push(optMatch[2].trim());
+      }
+      // Match answer lines: "Answer: B" or "Ans: C" or "Correct: A"
+      const ansMatch = l.match(/^(?:answer|ans|correct)[:\s]+([A-Da-d])/i);
+      if (ansMatch && !correctFound) {
+        correct = ansMatch[1].toUpperCase();
+        correctFound = true;
+      }
+    }
+    if (qText && opts.length >= 2) {
+      questions.push({ text: qText, options: opts, correct_answer: correct, marks: 1 });
+    }
+  }
+  return questions;
+}
+
+// UPLOAD step: parse file, return preview (no DB write)
+async function handleIngestUpload(req: NextRequest) {
   if (!isAdmin(req)) return forbidden();
   const formData = await req.formData();
   const file = formData.get("file") as File;
-  const examName = (formData.get("exam_name") as string) || "Initial Assessment";
-  const branch = (formData.get("branch") as string) || "CS";
-  const countLimit = parseInt((formData.get("count") as string) || "0") || 0;
   if (!file) return NextResponse.json({ detail: "No file provided" }, { status: 400 });
-  const content = await file.text();
-  const rows = parseCSV(content);
-  const questions = rows.map((row, i) => {
-    const text = row.text || row.question || row.question_text || row.q || "";
-    const optA = row.option_a || row.a || row.opt_a || row.option1 || "";
-    const optB = row.option_b || row.b || row.opt_b || row.option2 || "";
-    const optC = row.option_c || row.c || row.opt_c || row.option3 || "";
-    const optD = row.option_d || row.d || row.opt_d || row.option4 || "";
-    const correct = (row.correct_answer || row.answer || row.correct || "A").toString().toUpperCase().trim().charAt(0);
-    const marks = parseInt(row.marks || "1") || 1;
-    if (!text || !optA || !optB) return null;
-    return { text, options: [optA, optB, optC, optD].filter(Boolean), correct_answer: ["A", "B", "C", "D"].includes(correct) ? correct : "A", marks, order_index: i + 1, exam_name: examName, branch };
-  }).filter(Boolean) as any[];
-  let finalQuestions = countLimit > 0 && questions.length > countLimit ? questions.sort(() => Math.random() - 0.5).slice(0, countLimit) : questions;
-  if (!finalQuestions.length) return NextResponse.json({ detail: "No valid questions found." }, { status: 400 });
-  let imported = 0;
+  
+  const fileName = file.name.toLowerCase();
+  const rawText = await file.text();
+  
+  let questions: any[] = [];
+  
+  // Try CSV first
+  if (fileName.endsWith(".csv") || rawText.includes(",")) {
+    const rows = parseCSV(rawText);
+    questions = rows.map((row, i) => {
+      const text = row.text || row.question || row.question_text || row.q || row.question_text || "";
+      const optA = row.option_a || row.a || row.opt_a || row.option1 || row.opta || "";
+      const optB = row.option_b || row.b || row.opt_b || row.option2 || row.optb || "";
+      const optC = row.option_c || row.c || row.opt_c || row.option3 || row.optc || "";
+      const optD = row.option_d || row.d || row.opt_d || row.option4 || row.optd || "";
+      const correct = (row.correct_answer || row.answer || row.correct || row.correct_option || "A").toString().toUpperCase().trim().charAt(0);
+      const marks = parseInt(row.marks || row.mark || "1") || 1;
+      if (!text || !optA || !optB) return null;
+      return { text, options: [optA, optB, optC, optD].filter(Boolean), correct_answer: ["A","B","C","D"].includes(correct) ? correct : "A", marks, order_index: i + 1 };
+    }).filter(Boolean) as any[];
+  }
+  
+  // Fallback: try to extract from plain text (txt, docx text content, etc.)
+  if (questions.length === 0) {
+    questions = extractQuestionsFromText(rawText);
+  }
+
+  if (!questions.length) {
+    return NextResponse.json({ 
+      detail: "No valid questions found. Please use CSV format with columns: question, option_a, option_b, option_c, option_d, correct_answer",
+      questions: [], total: 0 
+    }, { status: 400 });
+  }
+
+  return NextResponse.json({ 
+    questions, 
+    total: questions.length,
+    ai_powered: false,
+    ai_confidence_avg: 1.0,
+    needs_review_count: 0
+  });
+}
+
+// COMMIT step: take parsed questions JSON and save to DB
+async function handleIngestCommit(req: NextRequest) {
+  if (!isAdmin(req)) return forbidden();
+  const body = await req.json();
+  const { questions, replace_existing, exam_name, max_questions } = body;
+  
+  if (!questions || !Array.isArray(questions) || questions.length === 0) {
+    return NextResponse.json({ detail: "No questions to commit" }, { status: 400 });
+  }
+
+  const examName = exam_name || "Initial Assessment";
+  let finalQuestions = questions.map((q: any, i: number) => ({
+    text: q.text,
+    options: q.options,
+    correct_answer: q.correct_answer || "A",
+    marks: q.marks || 1,
+    order_index: q.order_index ?? i + 1,
+    branch: q.branch || "CS",
+    exam_name: q.exam_name || examName,
+    image_url: q.image_url || null,
+  }));
+
+  if (max_questions && max_questions > 0 && finalQuestions.length > max_questions) {
+    finalQuestions = finalQuestions.sort(() => Math.random() - 0.5).slice(0, max_questions);
+  }
+
+  if (replace_existing) {
+    await supabase.from("questions").delete().eq("exam_name", examName);
+  }
+
+  let committed = 0;
   for (let i = 0; i < finalQuestions.length; i += 50) {
     const batch = finalQuestions.slice(i, i + 50);
     const { error } = await supabase.from("questions").insert(batch);
-    if (!error) imported += batch.length;
+    if (!error) committed += batch.length;
+    else console.error("Batch insert error:", error.message);
   }
-  return NextResponse.json({ imported, total: finalQuestions.length, exam_name: examName });
+
+  return NextResponse.json({ committed, total: finalQuestions.length, exam_name: examName });
+}
+
+// Legacy combined handler (kept for backwards compat)
+async function handleIngest(req: NextRequest) {
+  if (!isAdmin(req)) return forbidden();
+  // If it's multipart, treat as upload
+  const ct = req.headers.get("content-type") || "";
+  if (ct.includes("multipart/form-data")) return handleIngestUpload(req);
+  // Otherwise treat as commit
+  return handleIngestCommit(req);
 }
 
 // ── ROUTER ────────────────────────────────────────────────────────────────
@@ -259,7 +361,9 @@ export async function POST(req: NextRequest, { params }: { params: { path: strin
   if (path === "questions") return createQuestion(req);
   if (path === "students") return createStudent(req);
   if (path === "config") return setConfig(req);
-  if (path === "ingest" || path === "ingest/upload" || path === "ingest/commit") return handleIngest(req);
+  if (path === "ingest/upload") return handleIngestUpload(req);
+  if (path === "ingest/commit") return handleIngestCommit(req);
+  if (path === "ingest") return handleIngest(req);
   // student reset: students/<id>/reset
   const resetMatch = path.match(/^students\/([^/]+)\/reset$/);
   if (resetMatch) return resetStudent(req, resetMatch[1]);
