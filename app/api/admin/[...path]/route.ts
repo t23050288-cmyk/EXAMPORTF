@@ -243,7 +243,7 @@ export async function POST(req: NextRequest, { params }: { params: { path: strin
   if (path === "questions") return createQuestion(req);
   if (path === "students") return createStudent(req);
   if (path === "config") return setConfig(req);
-  if (path === "ingest") return handleIngest(req);
+  if (path === "ingest" || path === "ingest/upload" || path === "ingest/commit") return handleIngest(req);
   // student reset: students/<id>/reset
   const resetMatch = path.match(/^students\/([^/]+)\/reset$/);
   if (resetMatch) return resetStudent(req, resetMatch[1]);
