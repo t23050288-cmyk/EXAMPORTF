@@ -1,0 +1,68 @@
+from pydantic_settings import BaseSettings, SettingsConfigDict
+from functools import lru_cache
+import os
+
+class Settings(BaseSettings):
+    # Supabase
+    supabase_url: str = ""
+    supabase_service_key: str = ""  # primary service_role key
+    
+    # Fallback/Alternate names for convenience
+    SUPABASE_URL: str = ""
+    SUPABASE_SERVICE_KEY: str = ""
+    SUPABASE_ANON_KEY: str = ""     # Some users use anon key as service key in dev
+
+    # JWT
+    jwt_secret: str = ""
+    jwt_algorithm: str = "HS256"
+    jwt_expire_minutes: int = 90  # slightly longer than exam duration
+
+    # Admin
+    admin_secret: str = "admin@examguard2024"
+
+    # AI — Inception Spectral Parser
+    inception_api_key: str = ""   # Set INCEPTION_API_KEY in Vercel Environment Variables
+    ai_model: str = "google/gemma-2-2b-it"
+    ai_base_url: str = "https://integrate.api.nvidia.com/v1"
+    ai_thinking: bool = True
+
+    # Exam
+    exam_duration_minutes: int = 60
+
+    # CORS
+    allowed_origins: str = "http://localhost:3000,http://localhost:5173,http://localhost:3001,http://127.0.0.1:3000,http://127.0.0.1:5173,https://examportf.vercel.app,https://examportf-git-main-t23050288-cmyks-projects.vercel.app"
+
+    @property
+    def allowed_origins_list(self) -> list[str]:
+        # Handle trailing slashes and common dev variants
+        raw_list = [o.strip() for o in self.allowed_origins.split(",")]
+        cleaned = []
+        for origin in raw_list:
+            cleaned.append(origin)
+            if origin.endswith("/"):
+                cleaned.append(origin[:-1])
+            else:
+                cleaned.append(origin + "/")
+        # Also ensure both localhost and 127.0.0.1 variants are supported if either is present
+        final = set(cleaned)
+        for origin in cleaned:
+            if "localhost" in origin:
+                final.add(origin.replace("localhost", "127.0.0.1"))
+            elif "127.0.0.1" in origin:
+                final.add(origin.replace("127.0.0.1", "localhost"))
+        return list(final)
+
+    model_config = SettingsConfigDict(
+        # Look for .env file in multiple possible locations relative to the package
+        env_file=(".env", "../.env", "../../.env"),
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+        # Extra: ignore missing .env files (critical for Vercel where env vars
+        # are injected as real environment variables, not .env files)
+        extra="ignore",
+    )
+
+
+@lru_cache()
+def get_settings() -> Settings:
+    return Settings()
