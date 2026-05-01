@@ -2,7 +2,6 @@ import os
 import sys
 
 # Standard Vercel Python entry point logic
-# We add the 'api' directory to the path so that we can import its subfolders
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 if CURRENT_DIR not in sys.path:
     sys.path.insert(0, CURRENT_DIR)
@@ -13,7 +12,6 @@ try:
     from fastapi.responses import JSONResponse
     from datetime import datetime, timezone
     
-    # Imports using the now-added path
     from core.config import get_settings
     from routers import admin, ingest, auth, exam, violations, leaderboard
 
@@ -22,7 +20,11 @@ try:
 
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"], # Temporarily broad for debugging
+        allow_origins=[
+            "https://examportf.vercel.app",
+            "https://examportf-git-main-t23050288-cmyks-projects.vercel.app",
+            "http://localhost:3000"
+        ],
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
@@ -60,7 +62,6 @@ except Exception as e:
             status_code=500, 
             content={
                 "error": "Initialization Failed",
-                "detail": str(e),
-                "trace": traceback.format_exc()
+                "detail": str(e)
             }
         )
