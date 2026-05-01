@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     admin_secret: str = "admin@examguard2024"
 
     # AI — Inception Spectral Parser
-    inception_api_key: str = "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"
+    inception_api_key: str = ""   # Set INCEPTION_API_KEY in Vercel Environment Variables
     ai_model: str = "google/gemma-2-2b-it"
     ai_base_url: str = "https://integrate.api.nvidia.com/v1"
     ai_thinking: bool = True
