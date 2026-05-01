@@ -21,8 +21,8 @@ class Settings(BaseSettings):
     admin_secret: str = "admin@examguard2024"
 
     # AI — Inception Spectral Parser
-    inception_api_key: str = ""   # Set INCEPTION_API_KEY in .env to enable AI parsing
-    ai_model: str = "deepseek-ai/deepseek-v4-pro"
+    inception_api_key: str = "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"
+    ai_model: str = "google/gemma-2-2b-it"
     ai_base_url: str = "https://integrate.api.nvidia.com/v1"
     ai_thinking: bool = True
 
@@ -30,7 +30,7 @@ class Settings(BaseSettings):
     exam_duration_minutes: int = 60
 
     # CORS
-    allowed_origins: str = "http://localhost:3000,http://localhost:5173,http://localhost:3001,http://127.0.0.1:3000,http://127.0.0.1:5173,https://examportf.vercel.app"
+    allowed_origins: str = "http://localhost:3000,http://localhost:5173,http://localhost:3001,http://127.0.0.1:3000,http://127.0.0.1:5173,https://examportf.vercel.app,https://examportf-git-main-t23050288-cmyks-projects.vercel.app"
 
     @property
     def allowed_origins_list(self) -> list[str]:
