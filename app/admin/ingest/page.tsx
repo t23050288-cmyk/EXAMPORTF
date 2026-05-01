@@ -171,7 +171,7 @@ export default function IngestPage() {
     const fetchExams = async () => {
       try {
         const res = await fetch(`${API}/admin/questions`, {
-          headers: { "x-admin-secret": ADMIN_SECRET },
+          headers: { "X-Admin-Secret": ADMIN_SECRET },
         });
         const data = await res.json();
         if (data && Array.isArray(data.questions)) {
@@ -198,7 +198,7 @@ export default function IngestPage() {
     try {
       const res = await fetch(`${API}/admin/ingest/upload`, {
         method: "POST",
-        headers: { "x-admin-secret": ADMIN_SECRET },
+        headers: { "X-Admin-Secret": ADMIN_SECRET },
         body: formData,
       });
       if (!res.ok) {
@@ -255,7 +255,7 @@ export default function IngestPage() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "x-admin-secret": ADMIN_SECRET,
+          "X-Admin-Secret": ADMIN_SECRET,
         },
         body: JSON.stringify({
           questions: questionsWithTether,
