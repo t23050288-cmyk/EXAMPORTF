@@ -173,6 +173,11 @@ export default function IngestPage() {
         const res = await fetch(`${API}/admin/questions`, {
           headers: { "X-Admin-Secret": ADMIN_SECRET },
         });
+        if (!res.ok) {
+           const err = await res.json().catch(() => ({ detail: "Forbidden or Unauthorized" }));
+           setError(err.detail || `Error ${res.status}`);
+           return;
+        }
         const data = await res.json();
         if (data && Array.isArray(data.questions)) {
           const names = Array.from(new Set(data.questions.map((q: any) => q.exam_name))).filter(Boolean) as string[];
