@@ -3,7 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import bcrypt from "bcryptjs";
 
 const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_KEY!);
-const ADMIN_SECRET = process.env.ADMIN_SECRET || process.env.NEXT_PUBLIC_ADMIN_SECRET || "admin@examguard2024";
+const ADMIN_SECRET = process.env.NEXT_PUBLIC_ADMIN_SECRET || process.env.ADMIN_SECRET || "admin@examguard2024";
 
 function isAdmin(req: NextRequest) {
   return req.headers.get("x-admin-secret") === ADMIN_SECRET || req.headers.get("x-admin-key") === ADMIN_SECRET;
