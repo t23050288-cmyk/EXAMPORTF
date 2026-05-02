@@ -179,7 +179,11 @@ export default function IngestPage() {
            return;
         }
         const data = await res.json();
-        if (data && Array.isArray(data.questions)) {
+        // API returns {folders: [{name, branch, questions:[]}], total}
+        if (data && Array.isArray(data.folders)) {
+          const names = data.folders.map((f: any) => f.name).filter(Boolean) as string[];
+          setExistingExamNames(names.sort());
+        } else if (data && Array.isArray(data.questions)) {
           const names = Array.from(new Set(data.questions.map((q: any) => q.exam_name))).filter(Boolean) as string[];
           setExistingExamNames(names.sort());
         }

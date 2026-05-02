@@ -47,7 +47,7 @@ export default function QuestionCard({
 
       {/* Options */}
       <div className={styles.options}>
-        {question.options.map((option, idx) => {
+        {(question.options || []).map((option, idx) => {
           const key = OPTION_KEYS[idx];
           const isSelected = selectedAnswer === key;
 

@@ -96,9 +96,14 @@ export default function ExamPage() {
         setLoading(false);
         enterFullscreen();
       })
-      .catch(() => {
-        setError("Failed to load exam questions. Please refresh.");
-        setLoading(false);
+      .catch((e: any) => {
+        if (e?.message === "exam_inactive") {
+          setExamInactive(true);
+          setLoading(false);
+        } else {
+          setError("Failed to load exam questions. Please refresh.");
+          setLoading(false);
+        }
       });
   }, [router, enterFullscreen]);
 

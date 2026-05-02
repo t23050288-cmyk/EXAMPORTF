@@ -3,12 +3,10 @@ import { createClient } from "@supabase/supabase-js";
 import bcrypt from "bcryptjs";
 
 const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_KEY!);
-const ADMIN_SECRET = (process.env.ADMIN_SECRET || process.env.NEXT_PUBLIC_ADMIN_SECRET || "admin@examguard2024").trim();
-const FALLBACK_SECRET = "admin@examguard2024";
+const ADMIN_SECRET = process.env.ADMIN_SECRET || process.env.NEXT_PUBLIC_ADMIN_SECRET || "admin@examguard2024";
 
 function isAdmin(req: NextRequest) {
-  const provided = req.headers.get("x-admin-secret") || req.headers.get("x-admin-key") || "";
-  return provided.trim() === ADMIN_SECRET || provided.trim() === FALLBACK_SECRET;
+  return req.headers.get("x-admin-secret") === ADMIN_SECRET || req.headers.get("x-admin-key") === ADMIN_SECRET;
 }
 function forbidden() { return NextResponse.json({ detail: "Forbidden" }, { status: 403 }); }
 
@@ -113,60 +111,18 @@ async function resetStudent(req: NextRequest, id: string) {
 // ── CONFIG ────────────────────────────────────────────────────────────────
 async function getConfig() {
   const { data } = await supabase.from("exam_config").select("*").order("updated_at", { ascending: false });
-  // Normalize: ensure exam_title field exists (map from "title" if needed)
-  const normalized = (data || []).map((c: any) => ({
-    ...c,
-    exam_title: c.exam_title || c.title,
-    title: c.title || c.exam_title,
-  }));
-  return NextResponse.json(normalized);
+  return NextResponse.json(data || []);
 }
 
 async function setConfig(req: NextRequest) {
   if (!isAdmin(req)) return forbidden();
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const body = await req.json() as Record<string, any>;
-  const configTitle = (body.exam_title || body.title || "").trim();
-
-  // Build update object — only include defined fields
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const updates: Record<string, any> = { updated_at: new Date().toISOString() };
-  if (configTitle) updates.title = configTitle;
-  if (body.duration_minutes !== undefined) updates.duration_minutes = body.duration_minutes;
-  if (body.is_active !== undefined) updates.is_active = body.is_active;
-  if (body.marks_per_question !== undefined) updates.marks_per_question = body.marks_per_question;
-  if (body.negative_marks !== undefined) updates.negative_marks = body.negative_marks;
-  if (body.shuffle_questions !== undefined) updates.shuffle_questions = body.shuffle_questions;
-  if (body.shuffle_options !== undefined) updates.shuffle_options = body.shuffle_options;
-  if (body.total_questions !== undefined) updates.total_questions = body.total_questions;
-  if (body.scheduled_start !== undefined) updates.scheduled_start = body.scheduled_start;
-
-  // Find existing config by title
-  let existingId: string | null = null;
-  if (configTitle) {
-    const { data: byTitle } = await supabase.from("exam_config").select("id").eq("title", configTitle).maybeSingle();
-    if (byTitle) existingId = byTitle.id as string;
-  }
-  // Fallback: get any existing config (single-row config pattern)
-  if (!existingId) {
-    const { data: any } = await supabase.from("exam_config").select("id").order("updated_at", { ascending: false }).limit(1).maybeSingle();
-    if (any) existingId = any.id as string;
-  }
-
-  if (existingId) {
-    const { error } = await supabase.from("exam_config").update(updates).eq("id", existingId);
-    if (error) return NextResponse.json({ detail: error.message }, { status: 500 });
+  const body = await req.json();
+  const { exam_title, duration_minutes, is_active, marks_per_question, negative_marks, shuffle_questions, total_questions } = body;
+  const { data: existing } = await supabase.from("exam_config").select("id").eq("exam_title", exam_title).single();
+  if (existing) {
+    await supabase.from("exam_config").update({ duration_minutes, is_active, marks_per_question, negative_marks, shuffle_questions, total_questions }).eq("exam_title", exam_title);
   } else {
-    const { error } = await supabase.from("exam_config").insert({
-      title: configTitle || "Default Exam",
-      duration_minutes: body.duration_minutes ?? 30,
-      is_active: body.is_active ?? false,
-      marks_per_question: body.marks_per_question ?? 1,
-      negative_marks: body.negative_marks ?? 0,
-      shuffle_questions: body.shuffle_questions ?? false,
-      shuffle_options: body.shuffle_options ?? false,
-    });
-    if (error) return NextResponse.json({ detail: error.message }, { status: 500 });
+    await supabase.from("exam_config").insert({ exam_title, duration_minutes, is_active, marks_per_question, negative_marks, shuffle_questions, total_questions });
   }
   return NextResponse.json({ ok: true });
 }
@@ -219,11 +175,10 @@ async function getExport(req: NextRequest) {
 }
 
 // ── INGEST ────────────────────────────────────────────────────────────────
-
-function parseCSV(content: string): Record<string, string>[] {
-  const lines = content.split(/\r?\n/).filter(l => l.trim());
+function parseCSV(content: string) {
+  const lines = content.split("\n").filter(l => l.trim());
   if (lines.length < 2) return [];
-  const headers = lines[0].split(",").map(h => h.trim().toLowerCase().replace(/[^a-z0-9_]/g, "_").replace(/_+/g, "_"));
+  const headers = lines[0].split(",").map(h => h.trim().toLowerCase().replace(/[^a-z0-9_]/g, "_"));
   return lines.slice(1).map(line => {
     const cols: string[] = [];
     let cur = "", inQ = false;
@@ -234,343 +189,224 @@ function parseCSV(content: string): Record<string, string>[] {
     }
     cols.push(cur.trim());
     const obj: Record<string, string> = {};
-    headers.forEach((h, i) => { obj[h] = cols[i] ?? ""; });
+    headers.forEach((h, i) => { obj[h] = cols[i] || ""; });
     return obj;
   });
 }
 
-// Normalize a CSV/Excel row to a question object
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function rowToQuestion(row: Record<string, any>, idx: number): null | {
-  text: string; options: string[]; correct_answer: string; marks: number; order_index: number;
-} {
-  // Try every possible column name variant for question text
-  const text = String(
-    row.question ?? row.Question ?? row.QUESTION ?? 
-    row.question_text ?? row.Question_Text ?? row.questiontext ??
-    row.text ?? row.Text ?? row.TEXT ??
-    row.q ?? row.Q ?? row.stmt ?? row.statement ?? ""
-  ).trim();
-
-  // Try every possible variant for options
-  const optA = String(row.option_a ?? row.Option_A ?? row.option_1 ?? row.option1 ?? row.opt_a ?? row.opta ?? row.a ?? row.A ?? row["Option A"] ?? row["option a"] ?? row["a)"] ?? "").trim();
-  const optB = String(row.option_b ?? row.Option_B ?? row.option_2 ?? row.option2 ?? row.opt_b ?? row.optb ?? row.b ?? row.B ?? row["Option B"] ?? row["option b"] ?? row["b)"] ?? "").trim();
-  const optC = String(row.option_c ?? row.Option_C ?? row.option_3 ?? row.option3 ?? row.opt_c ?? row.optc ?? row.c ?? row.C ?? row["Option C"] ?? row["option c"] ?? row["c)"] ?? "").trim();
-  const optD = String(row.option_d ?? row.Option_D ?? row.option_4 ?? row.option4 ?? row.opt_d ?? row.optd ?? row.d ?? row.D ?? row["Option D"] ?? row["option d"] ?? row["d)"] ?? "").trim();
-
-  const rawCorrect = String(
-    row.correct_answer ?? row.Correct_Answer ?? row.correct ?? row.Correct ?? row.CORRECT ??
-    row.answer ?? row.Answer ?? row.ANSWER ?? row.ans ?? row.Ans ?? row.key ?? row.Key ?? "A"
-  ).toUpperCase().trim();
-  const correct = ["A","B","C","D"].includes(rawCorrect.charAt(0)) ? rawCorrect.charAt(0) : "A";
-  const marks = parseInt(String(row.marks ?? row.Marks ?? row.MARKS ?? row.mark ?? "1")) || 1;
-
-  if (!text || !optA || !optB) return null;
-  const options = [optA, optB, optC, optD].filter(Boolean);
-  return { text, options, correct_answer: correct, marks, order_index: idx + 1 };
+function rowsToQuestions(rows: Record<string, string>[], examName: string, branch: string) {
+  return rows.map((row, i) => {
+    const text = row.text || row.question || row.question_text || row.q || "";
+    const optA = row.option_a || row.a || row.opt_a || row.option1 || row.option_1 || "";
+    const optB = row.option_b || row.b || row.opt_b || row.option2 || row.option_2 || "";
+    const optC = row.option_c || row.c || row.opt_c || row.option3 || row.option_3 || "";
+    const optD = row.option_d || row.d || row.opt_d || row.option4 || row.option_4 || "";
+    const correct = (row.correct_answer || row.answer || row.correct || "A").toString().toUpperCase().trim().charAt(0);
+    const marks = parseInt(row.marks || "1") || 1;
+    if (!text || !optA || !optB) return null;
+    return {
+      text, 
+      options: [optA, optB, optC, optD].filter(Boolean),
+      correct_answer: ["A","B","C","D"].includes(correct) ? correct : "A",
+      marks,
+      order_index: i + 1,
+      exam_name: examName,
+      branch,
+      confidence: 0.95,
+      needs_review: false,
+      review_reason: null
+    };
+  }).filter(Boolean) as any[];
 }
 
-// Extract Q&A from free-form text (PDF/DOCX/TXT)
-function extractQuestionsFromText(rawText: string): Array<{
-  text: string; options: string[]; correct_answer: string; marks: number; order_index: number;
-}> {
-  const results: Array<{ text: string; options: string[]; correct_answer: string; marks: number; order_index: number }> = [];
+// Parse plain text / PDF text for Q&A patterns
+function parseTextQuestions(text: string, examName: string, branch: string) {
+  const questions: any[] = [];
+  // Split by question number patterns: "1.", "Q1.", "Q.1", "1)"
+  const qBlocks = text.split(/(?=\n?(?:Q[.:]?\s*)?\d+[.)\s])/i).filter(b => b.trim());
   
-  // Normalize line endings and remove extra whitespace
-  const text = rawText.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
-  
-  // Split into question blocks. Supports:
-  // "1." "1)" "Q1." "Q.1" "Q1:" "Question 1." "(1)"
-  const questionPattern = /(?:^|\n)\s*(?:Q\.?\s*)?(\d+)[.):\s]\s*/gm;
-  const splits: { idx: number; num: number }[] = [];
-  let m: RegExpExecArray | null;
-  while ((m = questionPattern.exec(text)) !== null) {
-    splits.push({ idx: m.index, num: parseInt(m[1]) });
-  }
-  
-  if (splits.length === 0) return results;
-
-  for (let i = 0; i < splits.length; i++) {
-    const start = splits[i].idx;
-    const end = i + 1 < splits.length ? splits[i + 1].idx : text.length;
-    const block = text.slice(start, end).trim();
+  for (const block of qBlocks) {
     const lines = block.split("\n").map(l => l.trim()).filter(Boolean);
     if (lines.length < 3) continue;
-
-    // First line: strip leading question number
-    const qText = lines[0].replace(/^\s*(?:Q\.?\s*)?\d+[.):\s]+/i, "").trim();
-    if (!qText || qText.length < 5) continue;
-
-    const opts: string[] = [];
-    let correct = "A";
-    let correctFound = false;
-
-    for (let j = 1; j < lines.length; j++) {
-      const l = lines[j];
-
-      // Option line: "A)" "A." "A:" "(A)" "a)" "(a)"
-      const optMatch = l.match(/^\s*[(\[]?([A-Da-d])[.):\]]\s*(.+)/);
-      if (optMatch) {
-        opts.push(optMatch[2].trim());
-        continue;
-      }
-
-      // Answer line: "Answer: B" "Ans: C" "Correct: A" "Key: D" "Ans(B)" "Answer - C"
-      const ansMatch = l.match(/^\s*(?:answer|ans|correct|key|sol(?:ution)?)\s*[:()\-\s]+([A-Da-d])/i);
-      if (ansMatch && !correctFound) {
-        correct = ansMatch[1].toUpperCase();
-        correctFound = true;
-      }
+    
+    // Extract question text (first line, strip leading number)
+    let qText = lines[0].replace(/^(?:Q[.:]?\s*)?\d+[.)\s]+/i, "").trim();
+    if (!qText || qText.length < 5) {
+      // question might span multiple lines before options
+      qText = lines.slice(0, 2).join(" ").replace(/^(?:Q[.:]?\s*)?\d+[.)\s]+/i, "").trim();
     }
-
-    if (qText && opts.length >= 2) {
-      results.push({ text: qText, options: opts, correct_answer: correct, marks: 1, order_index: results.length + 1 });
+    
+    // Find options: lines starting with A), B), (A), a., etc.
+    const optionLines = lines.filter(l => /^[A-Da-d][).:\s]/.test(l));
+    if (optionLines.length < 2) continue;
+    
+    const options = optionLines.slice(0, 4).map(l => l.replace(/^[A-Da-d][).:\s]+/, "").trim());
+    
+    // Find answer: line with "Answer:", "Ans:", "Correct:", etc.
+    const answerLine = lines.find(l => /^(?:answer|ans|correct)[:.\s]/i.test(l));
+    let correct = "A";
+    if (answerLine) {
+      const m = answerLine.match(/[A-Da-d]/);
+      if (m) correct = m[0].toUpperCase();
+    }
+    
+    if (qText && options.length >= 2) {
+      questions.push({
+        text: qText,
+        options,
+        correct_answer: correct,
+        marks: 1,
+        order_index: questions.length + 1,
+        exam_name: examName,
+        branch,
+        confidence: 0.8,
+        needs_review: !answerLine,
+        review_reason: !answerLine ? "No answer key found" : null
+      });
     }
   }
-
-  return results;
+  return questions;
 }
 
-// UPLOAD step: parse file → return preview JSON (no DB write)
-async function handleIngestUpload(req: NextRequest) {
+async function handleIngestUpload(req: NextRequest): Promise<NextResponse> {
   if (!isAdmin(req)) return forbidden();
-
+  
   let formData: FormData;
   try {
     formData = await req.formData();
   } catch {
-    return NextResponse.json({ detail: "Invalid multipart form data" }, { status: 400 });
+    return NextResponse.json({ detail: "Invalid form data" }, { status: 400 });
   }
-
-  const file = formData.get("file");
-  if (!file || typeof file === "string") {
-    return NextResponse.json({ detail: "No file uploaded. Please attach a file." }, { status: 400 });
-  }
-
-  const f = file as File;
-  const fileName = (f.name || "").toLowerCase().trim();
-  const fileSize = f.size;
-
-  if (fileSize === 0) {
-    return NextResponse.json({ detail: "Uploaded file is empty." }, { status: 400 });
-  }
-  if (fileSize > 20 * 1024 * 1024) {
-    return NextResponse.json({ detail: "File too large. Max 20MB." }, { status: 400 });
-  }
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  
+  const file = formData.get("file") as File | null;
+  if (!file) return NextResponse.json({ detail: "No file provided" }, { status: 400 });
+  
+  const examName = (formData.get("exam_name") as string) || "Initial Assessment";
+  const branch = (formData.get("branch") as string) || "CS";
+  const countLimit = parseInt((formData.get("count") as string) || "0") || 0;
+  
+  const fileName = file.name.toLowerCase();
+  const ext = fileName.split(".").pop() || "";
+  const content = await file.text();
+  
   let questions: any[] = [];
-  let rawText = "";
-  let parseError = "";
-
-  try {
-    // ── XLSX / XLS ──────────────────────────────────────────────────────────
-    if (fileName.endsWith(".xlsx") || fileName.endsWith(".xls")) {
-      try {
-        const arrayBuffer = await f.arrayBuffer();
-        const xlsx = await import("xlsx");
-        const workbook = xlsx.read(Buffer.from(arrayBuffer), { type: "buffer" });
-        const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const rows: Record<string, any>[] = xlsx.utils.sheet_to_json(firstSheet, { defval: "" });
-        questions = rows.map((row, i) => rowToQuestion(row, i)).filter(Boolean);
-      } catch (e: unknown) {
-        parseError = `Excel parse error: ${e instanceof Error ? e.message : String(e)}`;
-      }
-
-    // ── DOCX ────────────────────────────────────────────────────────────────
-    } else if (fileName.endsWith(".docx")) {
-      try {
-        const arrayBuffer = await f.arrayBuffer();
-        const mammoth = await import("mammoth");
-        // mammoth needs a Buffer, not ArrayBuffer
-        const buffer = Buffer.from(arrayBuffer);
-        const result = await mammoth.extractRawText({ buffer });
-        rawText = result.value || "";
-        if (!rawText.trim()) {
-          // Try alternative mammoth input
-          const result2 = await mammoth.extractRawText({ arrayBuffer });
-          rawText = result2.value || "";
-        }
-        questions = extractQuestionsFromText(rawText);
-      } catch (e: unknown) {
-        parseError = `DOCX parse error: ${e instanceof Error ? e.message : String(e)}`;
-      }
-
-    // ── PDF ─────────────────────────────────────────────────────────────────
-    } else if (fileName.endsWith(".pdf")) {
-      try {
-        const arrayBuffer = await f.arrayBuffer();
-        const buf = Buffer.from(arrayBuffer);
-        // Try pdf-parse with proper require
-        // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-explicit-any
-        let pdfParseFn: ((b: Buffer) => Promise<{ text: string }>) | null = null;
-        try {
-          // eslint-disable-next-line @typescript-eslint/no-var-requires
-          pdfParseFn = require("pdf-parse");
-        } catch { /* try dynamic import */ }
-        if (!pdfParseFn) {
-          const mod = await import("pdf-parse");
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          pdfParseFn = (mod as any).default || (mod as any);
-        }
-        if (pdfParseFn) {
-          const pdfData = await pdfParseFn(buf);
-          rawText = pdfData.text || "";
-          questions = extractQuestionsFromText(rawText);
-        } else {
-          parseError = "PDF parser not available";
-        }
-      } catch (e: unknown) {
-        parseError = `PDF parse error: ${e instanceof Error ? e.message : String(e)}`;
-      }
-
-    // ── CSV / TXT ────────────────────────────────────────────────────────────
-    } else if (fileName.endsWith(".csv") || fileName.endsWith(".txt") || fileName === "") {
-      try {
-        rawText = await f.text();
-        const lines = rawText.split(/\r?\n/).filter(l => l.trim());
-        const firstLine = lines[0] || "";
-
-        if (firstLine.includes(",") && lines.length > 1) {
-          // Looks like CSV
-          const rows = parseCSV(rawText);
-          questions = rows.map((row, i) => rowToQuestion(row, i)).filter(Boolean);
-        }
-
-        // If CSV parsing yielded nothing, try text extraction
-        if (questions.length === 0) {
-          questions = extractQuestionsFromText(rawText);
-        }
-      } catch (e: unknown) {
-        parseError = `Text parse error: ${e instanceof Error ? e.message : String(e)}`;
-      }
+  const warnings: string[] = [];
+  
+  if (ext === "csv") {
+    const rows = parseCSV(content);
+    questions = rowsToQuestions(rows, examName, branch);
+    if (!questions.length) warnings.push("No valid rows found. Make sure columns: text/question, option_a/b/c/d, correct_answer/answer");
+  } else if (ext === "txt" || ext === "pdf" || ext === "docx" || ext === "doc") {
+    // For PDF/DOCX we get the raw text from the browser (file.text())
+    // Try CSV first, fallback to text parsing
+    const rows = parseCSV(content);
+    if (rows.length > 0 && (rows[0].text || rows[0].question || rows[0].q)) {
+      questions = rowsToQuestions(rows, examName, branch);
     } else {
-      // Unknown extension — try text first, then give up
-      try {
-        rawText = await f.text();
-        if (rawText.includes(",")) {
-          const rows = parseCSV(rawText);
-          questions = rows.map((row, i) => rowToQuestion(row, i)).filter(Boolean);
-        }
-        if (questions.length === 0) {
-          questions = extractQuestionsFromText(rawText);
-        }
-      } catch (e: unknown) {
-        parseError = `Unknown file type. Supported: CSV, XLSX, DOCX, PDF, TXT. Error: ${e instanceof Error ? e.message : String(e)}`;
-      }
+      questions = parseTextQuestions(content, examName, branch);
     }
-  } catch (outerErr: unknown) {
-    parseError = `File parsing failed: ${outerErr instanceof Error ? outerErr.message : String(outerErr)}`;
+    if (!questions.length) {
+      warnings.push("Could not auto-detect question format. For best results use CSV format with columns: question, option_a, option_b, option_c, option_d, correct_answer");
+    }
+  } else if (ext === "xlsx" || ext === "xls") {
+    // XLSX as text is garbled binary - try CSV parse anyway
+    const rows = parseCSV(content);
+    questions = rowsToQuestions(rows, examName, branch);
+    if (!questions.length) warnings.push("For Excel files, please export as CSV first for reliable parsing.");
+  } else {
+    // Unknown format - try CSV then text
+    const rows = parseCSV(content);
+    if (rows.length > 1) {
+      questions = rowsToQuestions(rows, examName, branch);
+    } else {
+      questions = parseTextQuestions(content, examName, branch);
+    }
   }
-
-  if (parseError && questions.length === 0) {
-    return NextResponse.json({ detail: parseError }, { status: 400 });
+  
+  if (countLimit > 0 && questions.length > countLimit) {
+    questions = questions.sort(() => Math.random() - 0.5).slice(0, countLimit);
   }
-
-  if (questions.length === 0) {
-    const hint = fileName.endsWith(".pdf") || fileName.endsWith(".docx")
-      ? "For PDF/DOCX: use numbered questions (1. Question text) with A) B) C) D) options and 'Answer: X' on a new line."
-      : "For CSV/XLSX: use columns — question, option_a, option_b, option_c, option_d, correct_answer";
-    return NextResponse.json({ 
-      detail: `No valid questions found in file. ${hint}`,
-      questions: [], total: 0 
-    }, { status: 400 });
-  }
-
+  
+  const needsReviewCount = questions.filter((q: any) => q.needs_review).length;
+  const avgConf = questions.length > 0 
+    ? questions.reduce((s: number, q: any) => s + (q.confidence || 1), 0) / questions.length 
+    : 1;
+  
   return NextResponse.json({
     questions,
     total: questions.length,
+    source_file: file.name,
+    parse_warnings: warnings,
     ai_powered: false,
-    ai_confidence_avg: 1.0,
-    needs_review_count: 0,
-    parse_warning: parseError || undefined,
+    ai_confidence_avg: avgConf,
+    needs_review_count: needsReviewCount,
+    finesse_check: null
   });
 }
 
-// COMMIT step: save parsed questions to DB
-async function handleIngestCommit(req: NextRequest) {
+async function handleIngestCommit(req: NextRequest): Promise<NextResponse> {
   if (!isAdmin(req)) return forbidden();
-
-  let body: { questions?: unknown[]; replace_existing?: boolean; exam_name?: string; max_questions?: number | null };
+  
+  let body: any;
   try {
     body = await req.json();
   } catch {
-    return NextResponse.json({ detail: "Invalid JSON body" }, { status: 400 });
+    return NextResponse.json({ detail: "Invalid JSON" }, { status: 400 });
   }
-
+  
   const { questions, replace_existing, exam_name, max_questions } = body;
-
-  if (!questions || !Array.isArray(questions) || questions.length === 0) {
+  
+  if (!Array.isArray(questions) || questions.length === 0) {
     return NextResponse.json({ detail: "No questions to commit" }, { status: 400 });
   }
-
-  const examName = (exam_name || "Initial Assessment").trim();
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let finalQuestions: any[] = questions.map((q: any, i: number) => ({
-    text: String(q.text || q.question_text || "").trim(),
-    options: Array.isArray(q.options) ? q.options.filter(Boolean) : [],
-    correct_answer: String(q.correct_answer || "A").toUpperCase().charAt(0),
-    marks: parseInt(String(q.marks || "1")) || 1,
-    order_index: q.order_index ?? i + 1,
-    branch: String(q.branch || "CS").trim(),
-    exam_name: String(q.exam_name || examName).trim(),
-    image_url: q.image_url || null,
-  })).filter((q: any) => q.text && q.options.length >= 2);
-
-  if (finalQuestions.length === 0) {
-    return NextResponse.json({ detail: "No valid questions to commit after validation" }, { status: 400 });
-  }
-
+  
+  let finalQuestions = [...questions];
   if (max_questions && max_questions > 0 && finalQuestions.length > max_questions) {
     finalQuestions = finalQuestions.sort(() => Math.random() - 0.5).slice(0, max_questions);
   }
-
-  if (replace_existing) {
-    await supabase.from("questions").delete().eq("exam_name", examName);
+  
+  // Strip frontend-only fields
+  const toInsert = finalQuestions.map((q: any, i: number) => ({
+    text: q.text,
+    options: q.options,
+    correct_answer: q.correct_answer,
+    marks: q.marks || 1,
+    order_index: q.order_index ?? i + 1,
+    exam_name: q.exam_name || exam_name || "Initial Assessment",
+    branch: q.branch || "CS",
+    image_url: q.image_url || null,
+  }));
+  
+  if (replace_existing && exam_name) {
+    await supabase.from("questions").delete().eq("exam_name", exam_name);
   }
-
+  
   let committed = 0;
-  const errors: string[] = [];
-  for (let i = 0; i < finalQuestions.length; i += 50) {
-    const batch = finalQuestions.slice(i, i + 50);
+  for (let i = 0; i < toInsert.length; i += 50) {
+    const batch = toInsert.slice(i, i + 50);
     const { error } = await supabase.from("questions").insert(batch);
-    if (error) errors.push(error.message);
-    else committed += batch.length;
+    if (!error) committed += batch.length;
   }
-
-  if (committed === 0 && errors.length > 0) {
-    return NextResponse.json({ detail: `DB insert failed: ${errors[0]}` }, { status: 500 });
-  }
-
-  return NextResponse.json({ committed, total: finalQuestions.length, exam_name: examName, errors: errors.length > 0 ? errors : undefined });
+  
+  return NextResponse.json({ committed, total: toInsert.length, exam_name });
 }
 
-// Legacy combined handler
-async function handleIngest(req: NextRequest) {
-  const ct = req.headers.get("content-type") || "";
-  if (ct.includes("multipart/form-data")) return handleIngestUpload(req);
-  return handleIngestCommit(req);
+// Legacy single-step ingest (kept for backwards compat)
+async function handleIngest(req: NextRequest): Promise<NextResponse> {
+  return handleIngestUpload(req);
 }
 
-// ── ROUTER ────────────────────────────────────────────────────────────────
-async function debugSecret(req: NextRequest) {
-  const s = ADMIN_SECRET;
-  const provided = req.headers.get("x-admin-secret") || req.headers.get("x-admin-key") || "";
-  return NextResponse.json({ 
-    secret_preview: s.slice(0,3) + "***" + s.slice(-3),
-    secret_length: s.length,
-    env_admin_secret: process.env.ADMIN_SECRET ? "SET" : "NOT_SET",
-    env_next_admin_secret: process.env.NEXT_PUBLIC_ADMIN_SECRET ? "SET" : "NOT_SET",
-    provided_preview: provided ? provided.slice(0,3) + "***" + provided.slice(-3) : "NONE",
-    match: provided.trim() === ADMIN_SECRET || provided.trim() === FALLBACK_SECRET,
-  });
+export async function DELETE(req: NextRequest, { params }: { params: { path: string[] } }) {
+  const path = params.path?.join("/") || "";
+  const qMatch = path.match(/^questions\/([^/]+)$/);
+  if (qMatch) return deleteQuestion(req, qMatch[1]);
+  const sMatch = path.match(/^students\/([^/]+)$/);
+  if (sMatch) return deleteStudent(req, sMatch[1]);
+  return NextResponse.json({ detail: "Not found" }, { status: 404 });
 }
 
 export async function GET(req: NextRequest, { params }: { params: { path: string[] } }) {
   const path = params.path?.join("/") || "";
-  if (path === "_debug_secret") return debugSecret(req);
   if (path === "questions") return getQuestions(req);
   if (path === "students") return getStudents(req);
   if (path === "config") return getConfig();
@@ -585,10 +421,8 @@ export async function POST(req: NextRequest, { params }: { params: { path: strin
   if (path === "questions") return createQuestion(req);
   if (path === "students") return createStudent(req);
   if (path === "config") return setConfig(req);
-  if (path === "ingest/upload") return handleIngestUpload(req);
+  if (path === "ingest" || path === "ingest/upload") return handleIngestUpload(req);
   if (path === "ingest/commit") return handleIngestCommit(req);
-  if (path === "ingest") return handleIngest(req);
-  // student reset: students/<id>/reset
   const resetMatch = path.match(/^students\/([^/]+)\/reset$/);
   if (resetMatch) return resetStudent(req, resetMatch[1]);
   return NextResponse.json({ detail: "Not found" }, { status: 404 });
@@ -602,13 +436,3 @@ export async function PUT(req: NextRequest, { params }: { params: { path: string
   if (sMatch) return updateStudent(req, sMatch[1]);
   return NextResponse.json({ detail: "Not found" }, { status: 404 });
 }
-
-export async function DELETE(req: NextRequest, { params }: { params: { path: string[] } }) {
-  const path = params.path?.join("/") || "";
-  const qMatch = path.match(/^questions\/([^/]+)$/);
-  if (qMatch) return deleteQuestion(req, qMatch[1]);
-  const sMatch = path.match(/^students\/([^/]+)$/);
-  if (sMatch) return deleteStudent(req, sMatch[1]);
-  return NextResponse.json({ detail: "Not found" }, { status: 404 });
-}
-

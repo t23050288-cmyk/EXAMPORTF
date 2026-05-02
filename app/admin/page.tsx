@@ -343,12 +343,12 @@ export default function AdminPage() {
   const idle      = students.filter((s) => s.status === "active" && isStale(s.last_active)).length;
   const submitted = students.filter((s) => s.status === "submitted").length;
   const notStarted = students.filter((s) => s.status === "not_started").length;
-  const flagged   = students.filter((s) => s.warnings >= 2).length;
+  const flagged   = students.filter((s) => (s.warnings || 0) >= 2).length;
 
   const visible = students
     .filter((s) => filter === "all" || s.status === filter)
     .filter((s) => quizFilter === "all" || quizzes.some(q => q.exam_name === quizFilter && q.branch === s.branch))
-    .filter((s) => !search.trim() || s.usn.toLowerCase().includes(search.toLowerCase()) || s.name.toLowerCase().includes(search.toLowerCase()));
+    .filter((s) => !search.trim() || (s.usn || "").toLowerCase().includes(search.toLowerCase()) || (s.name || "").toLowerCase().includes(search.toLowerCase()));
 
   if (!initialized) {
     return (
@@ -808,7 +808,7 @@ function QuestionsTab() {
 
   const handleSave = async () => {
     if (!formData.text) return alert("Please enter question text");
-    if (formData.options.some((o) => !o)) return alert("All options must be filled");
+    if ((formData.options || []).some((o) => !o)) return alert("All options must be filled");
     if (!formData.correct_answer) return alert("Please select a correct answer");
     if (!formData.branch) return alert("Please select a branch");
     try {
@@ -1099,7 +1099,7 @@ function QuestionsTab() {
                               <div className={adminStyles.cardHeader}>
                                 <div className={adminStyles.cardIndex} style={{ fontSize: 11, fontWeight: 700, color: palette.accent }}>Q{q.order_index + 1}</div>
                                 <div style={{ display: "flex", gap: 8 }}>
-                                  <button className="btn-icon" onClick={() => { setEditing(q); setFormData({ ...q }); setShowModal(true); }}>✏️</button>
+                                  <button className="btn-icon" onClick={() => { setEditing(q); setFormData({ ...q, options: Array.isArray(q.options) ? q.options : ["","","",""] }); setShowModal(true); }}>✏️</button>
                                   <button className="btn-icon btn-danger" onClick={() => handleDelete(q.id)}>🗑️</button>
                                 </div>
                               </div>
@@ -1139,7 +1139,7 @@ function QuestionsTab() {
             </div>
             <div className={adminStyles.formGroup}>
               <label>Options</label>
-              {formData.options.map((opt, i) => (
+              {(formData.options || ["","","",""]).map((opt, i) => (
                 <input key={i} className={adminStyles.input} placeholder={`Option ${String.fromCharCode(65 + i)}`} value={opt}
                   onChange={(e) => { const n = [...formData.options]; n[i] = e.target.value; setFormData({ ...formData, options: n }); }} />
               ))}
@@ -1157,7 +1157,7 @@ function QuestionsTab() {
                 <label>Correct Answer</label>
                 <select className={adminStyles.input} value={formData.correct_answer} onChange={(e) => setFormData({ ...formData, correct_answer: e.target.value })}>
                   <option value="">Select correct option…</option>
-                  {formData.options.map((_, i) => <option key={i} value={String.fromCharCode(65 + i)}>Option {String.fromCharCode(65 + i)}</option>)}
+                  {(formData.options || ["","","",""]).map((_, i) => <option key={i} value={String.fromCharCode(65 + i)}>Option {String.fromCharCode(65 + i)}</option>)}
                 </select>
               </div>
               <div className={adminStyles.formGroup}>
@@ -1240,7 +1240,7 @@ function QuestionsTab() {
             </div>
             <div className={adminStyles.modalActions}>
               <button className="btn btn-outline" onClick={() => setShowModal(false)}>Cancel</button>
-              <button className="btn btn-primary" onClick={handleSave} disabled={!formData.text || !formData.correct_answer || formData.options.some((o) => !o)}>Save</button>
+              <button className="btn btn-primary" onClick={handleSave} disabled={!formData.text || !formData.correct_answer || (formData.options || []).some((o) => !o)}>Save</button>
             </div>
           </div>
         </div>
