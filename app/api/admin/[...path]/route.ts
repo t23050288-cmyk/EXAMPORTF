@@ -124,22 +124,49 @@ async function getConfig() {
 
 async function setConfig(req: NextRequest) {
   if (!isAdmin(req)) return forbidden();
-  const body = await req.json();
-  const { exam_title, title, duration_minutes, is_active, marks_per_question, negative_marks, shuffle_questions, total_questions } = body;
-  const configTitle = exam_title || title;
-  // Try both column names
-  const { data: existing } = await supabase.from("exam_config").select("id")
-    .or(`title.eq.${configTitle},exam_title.eq.${configTitle}`).maybeSingle();
-  if (existing) {
-    await supabase.from("exam_config").update({ 
-      title: configTitle, duration_minutes, is_active, marks_per_question, negative_marks, shuffle_questions, total_questions,
-      updated_at: new Date().toISOString()
-    }).eq("id", existing.id);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const body = await req.json() as Record<string, any>;
+  const configTitle = (body.exam_title || body.title || "").trim();
+
+  // Build update object — only include defined fields
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const updates: Record<string, any> = { updated_at: new Date().toISOString() };
+  if (configTitle) updates.title = configTitle;
+  if (body.duration_minutes !== undefined) updates.duration_minutes = body.duration_minutes;
+  if (body.is_active !== undefined) updates.is_active = body.is_active;
+  if (body.marks_per_question !== undefined) updates.marks_per_question = body.marks_per_question;
+  if (body.negative_marks !== undefined) updates.negative_marks = body.negative_marks;
+  if (body.shuffle_questions !== undefined) updates.shuffle_questions = body.shuffle_questions;
+  if (body.shuffle_options !== undefined) updates.shuffle_options = body.shuffle_options;
+  if (body.total_questions !== undefined) updates.total_questions = body.total_questions;
+  if (body.scheduled_start !== undefined) updates.scheduled_start = body.scheduled_start;
+
+  // Find existing config by title
+  let existingId: string | null = null;
+  if (configTitle) {
+    const { data: byTitle } = await supabase.from("exam_config").select("id").eq("title", configTitle).maybeSingle();
+    if (byTitle) existingId = byTitle.id as string;
+  }
+  // Fallback: get any existing config (single-row config pattern)
+  if (!existingId) {
+    const { data: any } = await supabase.from("exam_config").select("id").order("updated_at", { ascending: false }).limit(1).maybeSingle();
+    if (any) existingId = any.id as string;
+  }
+
+  if (existingId) {
+    const { error } = await supabase.from("exam_config").update(updates).eq("id", existingId);
+    if (error) return NextResponse.json({ detail: error.message }, { status: 500 });
   } else {
-    await supabase.from("exam_config").insert({ 
-      title: configTitle, duration_minutes, is_active: is_active ?? true, 
-      marks_per_question, negative_marks, shuffle_questions, total_questions 
+    const { error } = await supabase.from("exam_config").insert({
+      title: configTitle || "Default Exam",
+      duration_minutes: body.duration_minutes ?? 30,
+      is_active: body.is_active ?? false,
+      marks_per_question: body.marks_per_question ?? 1,
+      negative_marks: body.negative_marks ?? 0,
+      shuffle_questions: body.shuffle_questions ?? false,
+      shuffle_options: body.shuffle_options ?? false,
     });
+    if (error) return NextResponse.json({ detail: error.message }, { status: 500 });
   }
   return NextResponse.json({ ok: true });
 }
