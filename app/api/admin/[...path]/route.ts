@@ -288,7 +288,8 @@ async function handleIngestUpload(req: NextRequest) {
     } else if (fileName.endsWith(".pdf")) {
       // For PDF: use text extraction via pdf-parse
       const arrayBuffer = await file.arrayBuffer();
-      const pdfParse = (await import("pdf-parse/lib/pdf-parse.js")).default;
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const pdfParse = require("pdf-parse") as (buf: Buffer) => Promise<{ text: string }>;
       const pdfData = await pdfParse(Buffer.from(arrayBuffer));
       rawText = pdfData.text;
       questions = extractQuestionsFromText(rawText);
